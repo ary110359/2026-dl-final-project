@@ -13,9 +13,7 @@ def validate(val_loader, model, criterion, args):
     # switch to evaluate mode
     model.eval()
     if args.imagenet_arch:
-        device = (
-            torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-        )
+        device = getattr(args, "device", utils.get_device(args))
         for i, data in enumerate(val_loader):
             image, target = get_x_y_from_data_dict(data, device)
             with torch.no_grad():
@@ -41,9 +39,10 @@ def validate(val_loader, model, criterion, args):
 
         print("valid_accuracy {top1.avg:.3f}".format(top1=top1))
     else:
+        device = getattr(args, "device", next(model.parameters()).device)
         for i, (image, target) in enumerate(val_loader):
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
 
             # compute output
             with torch.no_grad():

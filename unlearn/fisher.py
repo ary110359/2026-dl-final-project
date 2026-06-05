@@ -3,6 +3,7 @@ import copy
 import torch
 from torch.autograd import grad
 from tqdm import tqdm
+from utils import get_device
 
 
 def fisher_information_martix(model, train_dl, device):
@@ -36,7 +37,7 @@ def fisher_information_martix(model, train_dl, device):
 def fisher(data_loaders, model, criterion, args):
     retain_loader = data_loaders["retain"]
 
-    device = f"cuda:{int(args.gpu)}" if torch.cuda.is_available() else "cpu"
+    device = getattr(args, "device", get_device(args))
     fisher_approximation = fisher_information_martix(model, retain_loader, device)
     for i, parameter in enumerate(model.parameters()):
         noise = torch.sqrt(args.alpha / fisher_approximation[i]).clamp(
@@ -49,7 +50,7 @@ def fisher(data_loaders, model, criterion, args):
 
 def hessian(dataset, model, loss_fn, args):
     model.eval()
-    device = f"cuda:{int(args.gpu)}" if torch.cuda.is_available() else "cpu"
+    device = getattr(args, "device", get_device(args))
     loss_fn = torch.nn.CrossEntropyLoss(reduction="mean")
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=False)
 

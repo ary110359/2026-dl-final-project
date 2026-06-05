@@ -41,6 +41,17 @@ def warmup_lr(epoch, step, optimizer, one_epoch_step, args):
         p["lr"] = lr
 
 
+def get_device(args=None):
+    """Prefer CUDA, then Apple MPS, then CPU."""
+    if torch.cuda.is_available():
+        gpu = int(getattr(args, "gpu", 0)) if args is not None else 0
+        torch.cuda.set_device(gpu)
+        return torch.device(f"cuda:{gpu}")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def save_checkpoint(
     state, is_SA_best, save_path, pruning, filename="checkpoint.pth.tar"
 ):

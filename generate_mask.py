@@ -23,13 +23,14 @@ def save_gradient_ratio(data_loaders, model, criterion, args):
 
     forget_loader = data_loaders["forget"]
     model.eval()
+    device = getattr(args, "device", next(model.parameters()).device)
 
     for name, param in model.named_parameters():
         gradients[name] = 0
 
     for i, (image, target) in enumerate(forget_loader):
-        image = image.cuda()
-        target = target.cuda()
+        image = image.to(device)
+        target = target.to(device)
 
         # compute output
         output_clean = model(image)
@@ -85,11 +86,8 @@ def save_gradient_ratio(data_loaders, model, criterion, args):
 def main():
     args = arg_parser.parse_args()
 
-    if torch.cuda.is_available():
-        torch.cuda.set_device(int(args.gpu))
-        device = torch.device(f"cuda:{int(args.gpu)}")
-    else:
-        device = torch.device("cpu")
+    device = utils.get_device(args)
+    args.device = device
 
     os.makedirs(args.save_dir, exist_ok=True)
     if args.seed:
@@ -103,7 +101,7 @@ def main():
         test_loader,
         marked_loader,
     ) = utils.setup_model_dataset(args)
-    model.cuda()
+    model.to(device)
 
     def replace_loader_dataset(
         dataset, batch_size=args.batch_size, seed=1, shuffle=True
@@ -208,11 +206,12 @@ def generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args):
     """
     optimizer = torch.optim.SGD(model.parameters(), args.unlearn_lr, momentum=args.momentum, weight_decay=args.weight_decay)
     model.eval()
+    device = getattr(args, "device", next(model.parameters()).device)
     gradients = {name: 0 for name, param in model.named_parameters()}
 
     # 1. 累積梯度
     for image, target in forget_loader:
-        image, target = image.cuda(), target.cuda()
+        image, target = image.to(device), target.to(device)
         output_clean = model(image)
         loss = - criterion(output_clean, target) # 負的 CrossEntropy，抓出最想破壞的權重
         optimizer.zero_grad()

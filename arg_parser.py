@@ -144,6 +144,6 @@ def parse_args():
 
     parser.add_argument("--forget_sequence", type=str, default="0,1,2,3,4", help="連續遺忘的類別順序 (逗號分隔)")
     parser.add_argument("--mask_ratio", type=float, default=0.5, help="Saliency mask 的保留比例 (例如 0.5 代表 top 50%)")
-    parser.add_argument("--alpha_conflict", type=float, default=0.1, help="Conflict 區域的學習率衰減倍率")
+    parser.add_argument("--alpha_conflict", type=float, default=0.5, help="Conflict 區域的 hit-count 指數衰減底數，例如 0.5 代表第 n 次命中使用 0.5^n")
 
     return parser.parse_args()

@@ -46,6 +46,7 @@ def GA(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
     train_loader = data_loaders["forget"]
     losses = utils.AverageMeter()
     top1 = utils.AverageMeter()
+    device = getattr(args, "device", utils.get_device(args))
 
     # switch to train mode
     model.train()
@@ -60,9 +61,6 @@ def GA(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
 
     start = time.time()
     if args.imagenet_arch:
-        device = (
-            torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-        )
         for i, data in enumerate(train_loader):
             image, target = get_x_y_from_data_dict(data, device)
             if epoch < args.warmup:
@@ -110,8 +108,8 @@ def GA(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
                     epoch, i + 1, optimizer, one_epoch_step=len(train_loader), args=args
                 )
 
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
 
             # compute output
             output_clean = model(image)
@@ -158,6 +156,7 @@ def GA_l1(data_loaders, model, criterion, optimizer, epoch, args):
 
     losses = utils.AverageMeter()
     top1 = utils.AverageMeter()
+    device = getattr(args, "device", utils.get_device(args))
 
     # switch to train mode
     model.train()
@@ -169,8 +168,8 @@ def GA_l1(data_loaders, model, criterion, optimizer, epoch, args):
                 epoch, i + 1, optimizer, one_epoch_step=len(train_loader), args=args
             )
 
-        image = image.cuda()
-        target = target.cuda()
+        image = image.to(device)
+        target = target.to(device)
 
         # compute output
         output_clean = model(image)

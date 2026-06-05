@@ -88,9 +88,10 @@ def boundary_expanding_iter(
     model.train()
 
     start = time.time()
+    device = getattr(args, "device", utils.get_device(args))
     for i, (image, target) in enumerate(train_loader):
-        image = image.cuda()
-        target = target.cuda()
+        image = image.to(device)
+        target = target.to(device)
 
         target_label = torch.ones_like(target)
         target_label *= args.num_classes

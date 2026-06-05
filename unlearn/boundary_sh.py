@@ -76,6 +76,7 @@ def boundary_shrink_iter(
     model.train()
 
     start = time.time()
+    device = getattr(args, "device", utils.get_device(args))
 
     for i, (image, target) in enumerate(train_loader):
         if epoch < args.warmup:
@@ -83,8 +84,8 @@ def boundary_shrink_iter(
                 epoch, i + 1, optimizer, one_epoch_step=len(train_loader), args=args
             )
 
-        image = image.cuda()
-        target = target.cuda()
+        image = image.to(device)
+        target = target.to(device)
 
         test_model.eval()
         image_adv = FGSM_perturb(
