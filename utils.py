@@ -42,7 +42,6 @@ def warmup_lr(epoch, step, optimizer, one_epoch_step, args):
 
 
 def get_device(args=None):
-    """Prefer CUDA, then Apple MPS, then CPU."""
     if torch.cuda.is_available():
         gpu = int(getattr(args, "gpu", 0)) if args is not None else 0
         torch.cuda.set_device(gpu)

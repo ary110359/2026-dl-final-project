@@ -201,19 +201,25 @@ def main():
 
 def generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args):
     """
-    你們專屬的動態 Mask 生成器：
-    只針對當前的 forget_loader 算梯度，並回傳 threshold = mask_ratio 的 0/1 Mask 字典。
+    [PROJECT MOD] 每一輪動態產生 saliency mask 的工具。
+
+    功能與目的：
+    原版 SalUn 會先用 generate_mask.py 產生一次 mask，之後透過 --mask_path
+    載入。連續遺忘需要每一個當前遺忘類別都有自己的新 mask，因此這個函式會
+    直接根據當前 forget_loader 計算梯度 saliency，並回傳 0/1 mask 字典。
     """
     optimizer = torch.optim.SGD(model.parameters(), args.unlearn_lr, momentum=args.momentum, weight_decay=args.weight_decay)
     model.eval()
     device = getattr(args, "device", next(model.parameters()).device)
     gradients = {name: 0 for name, param in model.named_parameters()}
 
-    # 1. 累積梯度
+    # [PROJECT MOD] 只在當前 forget set 上累積梯度絕對值。
     for image, target in forget_loader:
         image, target = image.to(device), target.to(device)
         output_clean = model(image)
-        loss = - criterion(output_clean, target) # 負的 CrossEntropy，抓出最想破壞的權重
+        # Negative CE follows SalUn's saliency intuition: highlight parameters
+        # whose movement most affects the target class to be unlearned.
+        loss = - criterion(output_clean, target)
         optimizer.zero_grad()
         loss.backward()
 
@@ -222,11 +228,11 @@ def generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args):
                 if param.grad is not None:
                     gradients[name] += param.grad.data.abs()
 
-    # 2. 算 Top-K Threshold 並產生 Mask
+    # [PROJECT MOD] 從全模型參數中選出 top mask_ratio，作為本輪 M_t。
     all_elements = torch.cat([tensor.flatten() for tensor in gradients.values()])
-    threshold_index = int(len(all_elements) * mask_ratio) # 取 top mask_ratio
+    threshold_index = int(len(all_elements) * mask_ratio)
     
-    positions = torch.argsort(all_elements, descending=True) # 由大排到小
+    positions = torch.argsort(all_elements, descending=True)
     ranks = torch.argsort(positions)
 
     mask_dict = {}
@@ -235,7 +241,7 @@ def generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args):
         num_elements = tensor.numel()
         tensor_ranks = ranks[start_index : start_index + num_elements]
         
-        # 名次在 threshold_index 之前的設為 1 (重要神經元)
+        # [PROJECT MOD] 排名在 threshold_index 之前的參數會被本輪 M_t 選中。
         threshold_tensor = torch.zeros_like(tensor_ranks)
         threshold_tensor[tensor_ranks < threshold_index] = 1
         mask_dict[key] = threshold_tensor.reshape(tensor.shape)

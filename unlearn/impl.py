@@ -53,7 +53,8 @@ def load_unlearn_checkpoint(model, device, args):
 
 
 def _iterative_unlearn_impl(unlearn_iter_func):
-    # ⚠️ [修改] 這裡的參數列新增了 regions=None 和 alpha_conflict=0.1
+    # [PROJECT MOD] 擴充原版 iterative-unlearn wrapper，新增 regions 和
+    # alpha_conflict，讓 RL.py 可以接收連續遺忘的區域更新策略。
     def _wrapped(data_loaders, model, criterion, args, mask=None, regions=None, alpha_conflict=0.1, **kwargs):
         decreasing_lr = list(map(int, args.decreasing_lr.split(",")))
         if args.rewind_epoch != 0:
@@ -109,7 +110,7 @@ def _iterative_unlearn_impl(unlearn_iter_func):
                 )
             )
 
-            # ⚠️ [修改] 這裡把 regions 和 alpha_conflict 成功傳遞給真正的訓練迴圈 (例如 RL.py 裡的 RL 函數)
+            # [PROJECT MOD] 將 region 資訊傳入真正執行每個 epoch 的函式。
             train_acc = unlearn_iter_func(
                 data_loaders, model, criterion, optimizer, epoch, args, mask=mask, regions=regions, alpha_conflict=alpha_conflict, **kwargs
             )

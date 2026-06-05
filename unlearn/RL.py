@@ -10,23 +10,26 @@ from .impl import iterative_unlearn
 @torch.no_grad()
 def post_update_correction(model, theta_before, regions, alpha):
     """
-    強迫參數更新幅度遵循：
-    New Region: 1.0 倍
-    Conflict Region: alpha^n 倍 (n = cumulative hit count)
-    Old Region: 0.0 倍 (鎖死)
-    Other Region: 0.0 倍 (鎖死)
+    [PROJECT MOD] 連續 SalUn 使用的參數級 post-update correction。
+
+    功能與目的：
+    先讓 Adam/SGD 算出正常 optimizer step，接著重寫最後的參數值，讓每個
+    座標都遵守 region policy：
+    - 新區域：1.0x 更新，全力遺忘當前目標特徵。
+    - 衝突區域：alpha^n 更新，n 是累積命中次數。
+    - 舊區域：0.0x 更新，保護先前遺忘結果。
+    - 其他區域：0.0x 更新，避免無關參數漂移。
     """
     for name, param in model.named_parameters():
-        # 如果這個參數不需要梯度，或者不在我們的遮罩管轄範圍內，就跳過
+        # [PROJECT MOD] 跳過不在 region partition 管轄範圍內的 tensor。
         if param.grad is None or name not in regions:
             continue
             
         before = theta_before[name]
         after = param.data
-        delta = after - before  # Optimizer 原本想走的步伐
+        delta = after - before  # Optimizer's original proposed step.
         region_masks = regions[name]
         
-        # 把遮罩轉成跟參數一樣的 Device 和 Type
         r_new = region_masks['new'].to(device=param.device, dtype=param.dtype)
         r_conflict = region_masks['conflict'].to(device=param.device, dtype=param.dtype)
         r_old = region_masks['old'].to(device=param.device, dtype=param.dtype)
@@ -34,10 +37,10 @@ def post_update_correction(model, theta_before, regions, alpha):
         hit_count = region_masks['hit_count'].to(device=param.device, dtype=param.dtype)
         conflict_scale = torch.pow(torch.full_like(hit_count, alpha), hit_count)
         
-        # 建立倍率矩陣
+        # [PROJECT MOD] 建立每個參數座標自己的更新倍率矩陣。
         scale = (r_new * 1.0) + (r_conflict * conflict_scale) + (r_old * 0.0) + (r_other * 0.0)
                 
-        # 強制修正：退回原點，只走 (期望的倍率 * 步伐)
+        # [PROJECT MOD] 回到 theta_before，只套用被允許的那一段更新步伐。
         param.data.copy_(before + scale * delta)
 
 
@@ -74,7 +77,8 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
     forget_dataset = deepcopy(forget_loader.dataset)
     device = getattr(args, "device", next(model.parameters()).device)
     
-    # 這是為了相容舊版 baseline (如果沒有傳入 regions，就沿用原作者的方法)
+    # [PROJECT MOD] 向原版相容：如果沒有傳入 regions，就維持原本
+    # mask-based SalUn 的行為。
     theta0 = None
     if mask and not regions:
         with torch.no_grad():
@@ -103,7 +107,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
         loader_len = len(forget_loader) + len(retain_loader)
       
         if epoch < args.warmup:
-            # 注意：這裡原本作者有個 bug，迴圈還沒開始就用了 i，我把它改成直接抓 current_step
+            # [PROJECT MOD] 避免在迴圈變數 i 尚未建立前使用它。
             utils.warmup_lr(epoch, 1, optimizer, one_epoch_step=loader_len, args=args)
       
         for it, (image, target) in enumerate(train_loader):
@@ -118,23 +122,25 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             loss.backward()
             
             # ==========================================
-            # ⚠️ [修改] 更新參數與防呆機制
+            # [PROJECT MOD] 區域感知 optimizer correction。
+            # 在 optimizer.step() 前備份 theta，更新後再依照 region partition
+            # 對每個座標做縮放或凍結。
             # ==========================================
             if regions:
-                # [Ours] 在更新前，備份目前的參數
+                # [PROJECT MOD] 在 optimizer 更新前保存 theta_t。
                 with torch.no_grad():
                     theta_before = {name: param.data.clone() for name, param in model.named_parameters() if name in regions}
             elif mask:
-                # [Baseline] 套用舊的梯度遮罩
+                # [原版相容] 套用原本的 gradient mask 流程。
                 _apply_mask_to_grads(model, mask)
             
             optimizer.step()
             
             if regions:
-                # [Ours] 在更新後，把亂跑的參數拉回我們規定的比例
+                # [PROJECT MOD] 用 region-specific scale 重寫 theta_{t+1}。
                 post_update_correction(model, theta_before, regions, alpha=alpha_conflict)
             elif mask:
-                # [Baseline] 舊的還原機制
+                # [原版相容] 還原被 mask 排除的參數。
                 _restore_masked_params(model, mask, theta0, optimizer)
             # ==========================================
       
@@ -168,7 +174,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
         if epoch < args.warmup:
             utils.warmup_lr(epoch, 1, optimizer, one_epoch_step=loader_len, args=args)
         
-        # 1. 洗腦 Forget Loader
+        # [PROJECT MOD] Forget phase：對目標資料做 random-label training。
         for i, (image, target) in enumerate(forget_loader):
             image = image.to(device)
             target = torch.randint(0, args.num_classes, target.shape, device=device)
@@ -179,7 +185,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             optimizer.zero_grad()
             loss.backward()
             
-            # ⚠️ [修改] 套用我們的參數修正機制
+            # [PROJECT MOD] 在 forget phase 套用同一套 region-aware correction。
             if regions:
                 with torch.no_grad():
                     theta_before = {name: param.data.clone() for name, param in model.named_parameters() if name in regions}
@@ -193,7 +199,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             elif mask:
                 _restore_masked_params(model, mask, theta0, optimizer)
             
-        # 2. 護腦 Retain Loader
+        # [PROJECT MOD] Retain phase：保護剩餘類別的辨識能力。
         for i, (image, target) in enumerate(retain_loader):
             image = image.to(device)
             target = target.to(device)
@@ -204,7 +210,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             optimizer.zero_grad()
             loss.backward()
             
-            # ⚠️ [修改] 套用我們的參數修正機制
+            # [PROJECT MOD] 在 retain phase 套用同一套 region-aware correction。
             if regions:
                 with torch.no_grad():
                     theta_before = {name: param.data.clone() for name, param in model.named_parameters() if name in regions}
