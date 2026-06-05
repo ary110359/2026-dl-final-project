@@ -133,4 +133,6 @@ def train(train_loader, model, criterion, optimizer, epoch, args, mask=None, l1=
 
 
 def train_with_rewind(*args, **kwargs):
+    # [PROJECT MOD] 相容性 wrapper：trainer/__init__.py 會匯入
+    # train_with_rewind，因此保留這個入口並直接轉呼叫原本的 train。
     return train(*args, **kwargs)

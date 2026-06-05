@@ -13,6 +13,9 @@ import unlearn
 import utils
 from trainer import validate
 
+# [PROJECT MOD] 連續遺忘用的輔助工具。
+# 這些 import 不在原版 SalUn 的 main_forget.py 中；用途是讓每一輪都能
+# 產生新的 saliency mask、和歷史 hit count 比對，並把分區更新規則傳給 RL。
 from utils_mask import update_historical_mask, partition_regions
 from generate_mask import generate_mask_for_class
 
@@ -27,7 +30,9 @@ def main():
         utils.setup_seed(args.seed)
     seed = args.seed
 
-    args.class_to_replace = None  # 改
+    # [PROJECT MOD] 關閉原版的一次性 class marking。
+    # 本專案改由 args.forget_sequence 控制每一輪要遺忘的類別。
+    args.class_to_replace = None
 
     # prepare dataset
     (
@@ -51,11 +56,15 @@ def main():
             shuffle=shuffle,
         )
     
-    criterion = nn.CrossEntropyLoss() # 改
+    criterion = nn.CrossEntropyLoss()
 
     # =========================================================================
-    # 🚀 [新增] 準備連續遺忘 (Sequential Unlearning) 的環境變數
-    # 如果你們有在 arg_parser 裡加 args.forget_sequence，可以改寫成從 args 讀取
+    # [PROJECT MOD] 連續遺忘狀態。
+    #
+    # 原版 SalUn 是先產生一個 mask，再執行一次遺忘。本專案改成：
+    # forget_sequence 定義要依序遺忘的多個 class id；
+    # forgotten_classes 記錄已經不能再放進 retain set 的類別；
+    # historical_mask 記錄每個參數跨輪被 mask 選中的累積次數。
     # =========================================================================
     forget_sequence = [int(x) for x in args.forget_sequence.split(',')] if hasattr(args, 'forget_sequence') else [0, 1, 2, 3, 4]
     forgotten_classes = []
@@ -69,15 +78,19 @@ def main():
         print("="*60)
         
         # =========================================================================
-        # ✂️ [修改] 第 1 步：動態切分 Dataset (取代原本龐大又冗長的 try-except 區塊)
+        # [PROJECT MOD] 第 1 步：依照本輪類別動態切分資料集。
+        #
+        # 功能與目的：
+        # forget set 只包含當前要遺忘的類別；retain set 會排除當前類別和
+        # 所有過去已遺忘類別，避免舊遺忘目標在後續輪次被重新強化。
         # =========================================================================
         forget_dataset = copy.deepcopy(original_dataset)
         retain_dataset = copy.deepcopy(original_dataset)
         
-        # 統一轉換為 NumPy 陣列方便做 Boolean Indexing
+        # [PROJECT MOD] 統一 CIFAR/SVHN/TinyImageNet 的 label 欄位格式。
         targets = np.array(original_dataset.targets) if hasattr(original_dataset, 'targets') else np.array(original_dataset.labels)
         
-        # 1. 切出 Forget Dataset (只保留當前要忘記的類別)
+        # [PROJECT MOD] Forget Dataset：只保留當前目標類別。
         mask_forget = (targets == current_class)
         if hasattr(forget_dataset, 'data'):
             forget_dataset.data = forget_dataset.data[mask_forget]
@@ -89,7 +102,7 @@ def main():
         else:
             forget_dataset.labels = targets[mask_forget].tolist()
 
-        # 2. 切出 Retain Dataset (保留集：排除當前類別，且「絕對不能」包含以前忘過的)
+        # [PROJECT MOD] Retain Dataset：排除當前類別與歷史遺忘類別。
         mask_retain = (targets != current_class)
         for f_cls in forgotten_classes:
             mask_retain = mask_retain & (targets != f_cls)
@@ -104,7 +117,7 @@ def main():
         else:
             retain_dataset.labels = targets[mask_retain].tolist()
 
-        # 把切好的 Dataset 裝進卡車 (DataLoader) 裡
+        # [PROJECT MOD] 依照本輪切分結果重建 DataLoader。
         forget_loader = replace_loader_dataset(forget_dataset, seed=seed, shuffle=True)
         retain_loader = replace_loader_dataset(retain_dataset, seed=seed, shuffle=True)
         
@@ -115,10 +128,16 @@ def main():
         )
 
         # =========================================================================
-        # 🧠 [修改] 第 2 步：載入模型並計算動態 Mask 與四大區域
+        # [PROJECT MOD] 第 2 步：產生本輪 mask，並切分參數區域。
+        #
+        # 功能與目的：
+        # 原版 SalUn 使用預先算好的單次 mask_path；本專案每一輪都根據
+        # 當前 forget_loader 計算 M_t，再和歷史 hit-count matrix 比對，
+        # 分出 new / conflict / old / other 四種區域。
         # =========================================================================
         
-        # 第一輪如果是 Resume，就載入起點模型；之後的每一輪，模型都是繼承上一輪更新過的狀態
+        # [PROJECT MOD] 起始 checkpoint 只在第一輪載入；後續輪次沿用前一輪
+        # 已經遺忘後的模型狀態。
         if round_idx == 0:
             if args.resume:
                 checkpoint = unlearn.load_unlearn_checkpoint(model, device, args)
@@ -132,7 +151,8 @@ def main():
                     model.load_state_dict(checkpoint, strict=False)
 
         print("🔍 正在計算當前類別的 Saliency Mask (M_t)...")
-        # 這裡的 mask_ratio 可以改成從 args 抓，預設為 0.05
+        # [PROJECT MOD] mask_ratio 控制 M_t 的稀疏程度；數值越小越能降低
+        # 長序列遺忘中的 mask saturation 風險。
         mask_ratio = args.mask_ratio if hasattr(args, 'mask_ratio') else 0.05 
         current_mask = generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args)
 
@@ -140,7 +160,11 @@ def main():
         regions = partition_regions(current_mask, historical_mask)
 
         # =========================================================================
-        # ⚙️ [修改] 第 3 步：執行真正的 Unlearn 手術
+        # [PROJECT MOD] 第 3 步：執行遺忘，並在 RL 中啟用區域控制。
+        #
+        # 功能與目的：
+        # RL 會接收 regions 和 alpha_conflict，進行參數級 post-update
+        # correction；其他 unlearning 方法則維持原版呼叫方式。
         # =========================================================================
         print(f"⚡ 開始執行 Unlearn 演算法: {args.unlearn}")
         unlearn_method = unlearn.get_unlearn_method(args.unlearn)
@@ -158,7 +182,11 @@ def main():
             unlearn_method(unlearn_data_loaders, model, criterion, args)
         
         # =========================================================================
-        # 💾 [修改] 第 4 步：更新歷史記憶，並儲存本輪模型與評估結果
+        # [PROJECT MOD] 第 4 步：更新 hit-count 記憶，並評估本輪結果。
+        #
+        # 功能與目的：
+        # 當前類別遺忘完成後，將本輪 mask 加進歷史記憶，讓後續輪次知道
+        # 哪些參數已經被反覆動過。
         # =========================================================================
         forgotten_classes.append(current_class)
         historical_mask = update_historical_mask(historical_mask, current_mask)

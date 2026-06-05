@@ -142,6 +142,9 @@ def parse_args():
     parser.add_argument("--alpha", default=0.2, type=float, help="unlearn noise")
     parser.add_argument("--mask_path", default=None, type=str, help="the path of saliency map")
 
+    # [PROJECT MOD] 連續類別遺忘的專案參數。
+    # 原版 SalUn Classification 一次只處理一個遺忘請求；這裡新增遺忘順序、
+    # mask 稀疏比例，以及 conflict region 的 hit-count 指數衰減倍率。
     parser.add_argument("--forget_sequence", type=str, default="0,1,2,3,4", help="連續遺忘的類別順序 (逗號分隔)")
     parser.add_argument("--mask_ratio", type=float, default=0.5, help="Saliency mask 的保留比例 (例如 0.5 代表 top 50%)")
     parser.add_argument("--alpha_conflict", type=float, default=0.5, help="Conflict 區域的 hit-count 指數衰減底數，例如 0.5 代表第 n 次命中使用 0.5^n")
