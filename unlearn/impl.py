@@ -42,7 +42,8 @@ def load_unlearn_checkpoint(model, device, args):
     model.load_state_dict(checkpoint["state_dict"])
 
     # adding an extra forward process to enable the masks
-    x_rand = torch.rand(1, 3, args.input_size, args.input_size).cuda()
+    device = getattr(args, "device", utils.get_device(args))
+    x_rand = torch.rand(1, 3, args.input_size, args.input_size, device=device)
     model.eval()
     with torch.no_grad():
         model(x_rand)
@@ -56,9 +57,8 @@ def _iterative_unlearn_impl(unlearn_iter_func):
     def _wrapped(data_loaders, model, criterion, args, mask=None, regions=None, alpha_conflict=0.1, **kwargs):
         decreasing_lr = list(map(int, args.decreasing_lr.split(",")))
         if args.rewind_epoch != 0:
-            initialization = torch.load(
-                args.rewind_pth, map_location=torch.device("cuda:" + str(args.gpu))
-            )
+            device = getattr(args, "device", utils.get_device(args))
+            initialization = torch.load(args.rewind_pth, map_location=device)
             current_mask = extract_mask(model.state_dict())
             remove_prune(model)
             # weight rewinding

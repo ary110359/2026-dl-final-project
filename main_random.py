@@ -15,11 +15,8 @@ from trainer import validate
 def main():
     args = arg_parser.parse_args()
 
-    if torch.cuda.is_available():
-        torch.cuda.set_device(int(args.gpu))
-        device = torch.device(f"cuda:{int(args.gpu)}")
-    else:
-        device = torch.device("cpu")
+    device = utils.get_device(args)
+    args.device = device
 
     os.makedirs(args.save_dir, exist_ok=True)
     if args.seed:
@@ -33,7 +30,7 @@ def main():
         test_loader,
         marked_loader,
     ) = utils.setup_model_dataset(args)
-    model.cuda()
+    model.to(device)
 
     def replace_loader_dataset(
         dataset, batch_size=args.batch_size, seed=1, shuffle=True

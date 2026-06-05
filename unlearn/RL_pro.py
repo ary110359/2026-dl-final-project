@@ -11,6 +11,7 @@ def RL_proximal(data_loaders, model, criterion, optimizer, epoch, args, mask=Non
     retain_loader = data_loaders["retain"]
     forget_dataset = deepcopy(forget_loader.dataset)
     mask_ratio = args.mask_ratio
+    device = getattr(args, "device", utils.get_device(args))
     
     # concat all params
     init_params = torch.concat([param.view(-1) for param in model.parameters()], dim=0)
@@ -38,8 +39,8 @@ def RL_proximal(data_loaders, model, criterion, optimizer, epoch, args, mask=Non
       
         for it, (image, target) in enumerate(train_loader):
             i = it + len(forget_loader)
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
             # compute output
             output_clean = model(image)
             loss = criterion(output_clean, target)
@@ -93,8 +94,8 @@ def RL_proximal(data_loaders, model, criterion, optimizer, epoch, args, mask=Non
                             one_epoch_step=loader_len, args=args)
         
         for i, (image, target) in enumerate(forget_loader):
-            image = image.cuda()
-            target = torch.randint(0, args.num_classes, target.shape).cuda()
+            image = image.to(device)
+            target = torch.randint(0, args.num_classes, target.shape, device=device)
             
             # compute output
             output_clean = model(image)
@@ -116,8 +117,8 @@ def RL_proximal(data_loaders, model, criterion, optimizer, epoch, args, mask=Non
                 params = params[param.numel():]
             
         for i, (image, target) in enumerate(retain_loader):
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
             
             # compute output
             output_clean = model(image)

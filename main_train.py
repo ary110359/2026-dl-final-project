@@ -31,7 +31,8 @@ def main():
     global args, best_sa
     args = arg_parser.parse_args()
 
-    torch.cuda.set_device(int(args.gpu))
+    device = get_device(args)
+    args.device = device
     os.makedirs(args.save_dir, exist_ok=True)
     if args.seed:
         setup_seed(args.seed)
@@ -48,7 +49,7 @@ def main():
             test_loader,
             marked_loader,
         ) = setup_model_dataset(args)
-    model.cuda()
+    model.to(device)
 
     print(f"number of train dataset {len(train_loader.dataset)}")
     print(f"number of val dataset {len(val_loader.dataset)}")
@@ -84,9 +85,7 @@ def main():
         )  # 0.1 is fixed
     if args.resume:
         print("resume from checkpoint {}".format(args.checkpoint))
-        checkpoint = torch.load(
-            args.checkpoint, map_location=torch.device("cuda:" + str(args.gpu))
-        )
+        checkpoint = torch.load(args.checkpoint, map_location=device)
         best_sa = checkpoint["best_sa"]
         start_epoch = checkpoint["epoch"]
         all_result = checkpoint["result"]

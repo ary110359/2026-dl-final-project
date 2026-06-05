@@ -37,9 +37,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, mask=None, l1=
 
     start = time.time()
     if args.imagenet_arch:
-        device = (
-            torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-        )
+        device = getattr(args, "device", utils.get_device(args))
         for i, data in enumerate(train_loader):
             image, target = get_x_y_from_data_dict(data, device)
             if epoch < args.warmup:
@@ -83,14 +81,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args, mask=None, l1=
 
         print("train_accuracy {top1.avg:.3f}".format(top1=top1))
     else:
+        device = getattr(args, "device", utils.get_device(args))
         for i, (image, target) in enumerate(train_loader):
             if epoch < args.warmup:
                 utils.warmup_lr(
                     epoch, i + 1, optimizer, one_epoch_step=len(train_loader), args=args
                 )
 
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
 
             # compute output
             output_clean = model(image)
@@ -131,3 +130,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, mask=None, l1=
         print("train_accuracy {top1.avg:.3f}".format(top1=top1))
 
     return top1.avg
+
+
+def train_with_rewind(*args, **kwargs):
+    return train(*args, **kwargs)

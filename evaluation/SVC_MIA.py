@@ -36,11 +36,7 @@ def collect_prob(data_loader, model):
                 batch = [tensor.to(next(model.parameters()).device) for tensor in batch]
                 data, target = batch
             except:
-                device = (
-                    torch.device("cuda:0")
-                    if torch.cuda.is_available()
-                    else torch.device("cpu")
-                )
+                device = next(model.parameters()).device
                 data, target = get_x_y_from_data_dict(batch, device)
             with torch.no_grad():
                 output = model(data)

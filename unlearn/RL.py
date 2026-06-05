@@ -12,7 +12,7 @@ def post_update_correction(model, theta_before, regions, alpha):
     """
     強迫參數更新幅度遵循：
     New Region: 1.0 倍
-    Conflict Region: alpha 倍
+    Conflict Region: alpha^n 倍 (n = cumulative hit count)
     Old Region: 0.0 倍 (鎖死)
     Other Region: 0.0 倍 (鎖死)
     """
@@ -31,9 +31,11 @@ def post_update_correction(model, theta_before, regions, alpha):
         r_conflict = region_masks['conflict'].to(device=param.device, dtype=param.dtype)
         r_old = region_masks['old'].to(device=param.device, dtype=param.dtype)
         r_other = region_masks['other'].to(device=param.device, dtype=param.dtype)
+        hit_count = region_masks['hit_count'].to(device=param.device, dtype=param.dtype)
+        conflict_scale = torch.pow(torch.full_like(hit_count, alpha), hit_count)
         
         # 建立倍率矩陣
-        scale = (r_new * 1.0) + (r_conflict * alpha) + (r_old * 0.0) + (r_other * 0.0)
+        scale = (r_new * 1.0) + (r_conflict * conflict_scale) + (r_old * 0.0) + (r_other * 0.0)
                 
         # 強制修正：退回原點，只走 (期望的倍率 * 步伐)
         param.data.copy_(before + scale * delta)
@@ -70,6 +72,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
     forget_loader = data_loaders["forget"]
     retain_loader = data_loaders["retain"]
     forget_dataset = deepcopy(forget_loader.dataset)
+    device = getattr(args, "device", next(model.parameters()).device)
     
     # 這是為了相容舊版 baseline (如果沒有傳入 regions，就沿用原作者的方法)
     theta0 = None
@@ -105,8 +108,8 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
       
         for it, (image, target) in enumerate(train_loader):
             i = it + len(forget_loader)
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
             output_clean = model(image)
 
             loss = criterion(output_clean, target)
@@ -167,8 +170,8 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
         
         # 1. 洗腦 Forget Loader
         for i, (image, target) in enumerate(forget_loader):
-            image = image.cuda()
-            target = torch.randint(0, args.num_classes, target.shape).cuda()
+            image = image.to(device)
+            target = torch.randint(0, args.num_classes, target.shape, device=device)
             
             output_clean = model(image)
             loss = criterion(output_clean, target)
@@ -192,8 +195,8 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             
         # 2. 護腦 Retain Loader
         for i, (image, target) in enumerate(retain_loader):
-            image = image.cuda()
-            target = target.cuda()
+            image = image.to(device)
+            target = target.to(device)
             
             output_clean = model(image)
             loss = criterion(output_clean, target)

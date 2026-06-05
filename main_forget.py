@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 import arg_parser
 import evaluation
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim
@@ -18,11 +19,8 @@ from generate_mask import generate_mask_for_class
 def main():
     args = arg_parser.parse_args()
 
-    if torch.cuda.is_available():
-        torch.cuda.set_device(int(args.gpu))
-        device = torch.device(f"cuda:{int(args.gpu)}")
-    else:
-        device = torch.device("cpu")
+    device = utils.get_device(args)
+    args.device = device
 
     os.makedirs(args.save_dir, exist_ok=True)
     if args.seed:
@@ -39,7 +37,7 @@ def main():
         test_loader,
         marked_loader,
     ) = utils.setup_model_dataset(args)
-    model.cuda()
+    model.to(device)
 
     def replace_loader_dataset(
         dataset, batch_size=args.batch_size, seed=1, shuffle=True
@@ -147,9 +145,17 @@ def main():
         print(f"⚡ 開始執行 Unlearn 演算法: {args.unlearn}")
         unlearn_method = unlearn.get_unlearn_method(args.unlearn)
         
-        # ⚠️ 注意：這裡多傳了一個 regions 給底層，你們底層的 impl.py 和 RL.py 必須要能接收它！
-        # 如果你們底層還沒改，可以先傳 mask=current_mask 讓程式能跑，但動態學習率就不會生效
-        unlearn_method(unlearn_data_loaders, model, criterion, args, regions=regions)
+        if args.unlearn == "RL":
+            unlearn_method(
+                unlearn_data_loaders,
+                model,
+                criterion,
+                args,
+                regions=regions,
+                alpha_conflict=args.alpha_conflict,
+            )
+        else:
+            unlearn_method(unlearn_data_loaders, model, criterion, args)
         
         # =========================================================================
         # 💾 [修改] 第 4 步：更新歷史記憶，並儲存本輪模型與評估結果

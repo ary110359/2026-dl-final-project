@@ -2,6 +2,7 @@ import torch
 from imagenet import get_x_y_from_data_dict
 from torch.autograd import grad
 from tqdm import tqdm
+from utils import get_device
 
 
 def get_require_grad_params(model: torch.nn.Module, named=False):
@@ -74,9 +75,7 @@ def woodfisher_im(model, train_dl, device, criterion, v, args, mask=None):
     k_vec = torch.clone(v)
     N = 300000
     o_vec = None
-    device = (
-        torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    )
+    device = getattr(args, "device", get_device(args))
     for idx, data in enumerate(tqdm(train_dl)):
         model.zero_grad()
         data, label = get_x_y_from_data_dict(data, device)
@@ -108,7 +107,7 @@ def Wfisher(data_loaders, model, criterion, args, mask=None):
     forget_loader = torch.utils.data.DataLoader(
         forget_loader.dataset, batch_size=args.batch_size, shuffle=False
     )
-    device = f"cuda:{int(args.gpu)}" if torch.cuda.is_available() else "cpu"
+    device = getattr(args, "device", get_device(args))
     params = []
 
     for param in get_require_grad_params(model, named=False):

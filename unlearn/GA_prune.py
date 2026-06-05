@@ -22,14 +22,15 @@ def GA(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
 
     start = time.time()
+    device = getattr(args, "device", get_device(args))
     for i, (image, target) in enumerate(train_loader):
         if epoch < args.warmup:
             utils.warmup_lr(
                 epoch, i + 1, optimizer, one_epoch_step=len(train_loader), args=args
             )
 
-        image = image.cuda()
-        target = target.cuda()
+        image = image.to(device)
+        target = target.to(device)
 
         # compute output
         output_clean = model(image)
@@ -173,7 +174,7 @@ def GA_prune(data_loaders, model, criterion, args):
             print("* loading pretrained weight")
             initalization = torch.load(
                 os.path.join(args.save_dir, "0model_SA_best.pth.tar"),
-                map_location=torch.device("cuda:" + str(args.gpu)),
+                map_location=getattr(args, "device", get_device(args)),
             )["state_dict"]
 
         # pruning and rewind
