@@ -201,6 +201,50 @@ def main():
 
     save_gradient_ratio(unlearn_data_loaders, model, criterion, args)
 
+def generate_mask_for_class(model, forget_loader, criterion, mask_ratio, args):
+    """
+    你們專屬的動態 Mask 生成器：
+    只針對當前的 forget_loader 算梯度，並回傳 threshold = mask_ratio 的 0/1 Mask 字典。
+    """
+    optimizer = torch.optim.SGD(model.parameters(), args.unlearn_lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    model.eval()
+    gradients = {name: 0 for name, param in model.named_parameters()}
+
+    # 1. 累積梯度
+    for image, target in forget_loader:
+        image, target = image.cuda(), target.cuda()
+        output_clean = model(image)
+        loss = - criterion(output_clean, target) # 負的 CrossEntropy，抓出最想破壞的權重
+        optimizer.zero_grad()
+        loss.backward()
+
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    gradients[name] += param.grad.data.abs()
+
+    # 2. 算 Top-K Threshold 並產生 Mask
+    all_elements = torch.cat([tensor.flatten() for tensor in gradients.values()])
+    threshold_index = int(len(all_elements) * mask_ratio) # 取 top mask_ratio
+    
+    positions = torch.argsort(all_elements, descending=True) # 由大排到小
+    ranks = torch.argsort(positions)
+
+    mask_dict = {}
+    start_index = 0
+    for key, tensor in gradients.items():
+        num_elements = tensor.numel()
+        tensor_ranks = ranks[start_index : start_index + num_elements]
+        
+        # 名次在 threshold_index 之前的設為 1 (重要神經元)
+        threshold_tensor = torch.zeros_like(tensor_ranks)
+        threshold_tensor[tensor_ranks < threshold_index] = 1
+        mask_dict[key] = threshold_tensor.reshape(tensor.shape)
+        
+        start_index += num_elements
+
+    return mask_dict
+
 
 if __name__ == "__main__":
     main()
