@@ -90,6 +90,49 @@ effective_step = optimizer_step * (alpha_conflict ** hit_count)
 
 5. 將本輪 mask 加進 historical hit-count matrix。
 
+## 避免 Adam 與動態學習率衝突的設計
+
+這個設計實作在 `unlearn/RL.py` 的 `post_update_correction()`。
+
+本專案沒有直接在 gradient 階段套用動態學習率，原因是 Adam 這類 optimizer 會使用 momentum 與 adaptive scaling。如果只把 conflict region 的 gradient 乘上很小的倍率，Adam 內部的動量與自適應縮放仍可能改變實際參數更新幅度，導致我們設計的 `0.5^n` 力道控制不夠精準。
+
+因此本專案採用「更新後修正」：
+
+1. 在 `optimizer.step()` 前先備份參數：
+
+```python
+theta_before = {name: param.data.clone() ...}
+```
+
+2. 讓 optimizer 正常計算並更新：
+
+```python
+optimizer.step()
+```
+
+3. 更新後計算 optimizer 原本想走的步伐：
+
+```python
+delta = after - before
+```
+
+4. 依照 region policy 重寫最後參數：
+
+```python
+param.data.copy_(before + scale * delta)
+```
+
+其中 `scale` 由四種區域決定：
+
+```text
+new      -> 1.0
+conflict -> alpha_conflict ** hit_count
+old      -> 0.0
+other    -> 0.0
+```
+
+這樣做的效果是：先尊重 optimizer 算出的方向與步伐，再把最後真正落在參數上的位移強制縮放成我們要的比例。也就是說，Adam 可以照常工作，但最終更新幅度仍由本專案的動態分區策略掌控。
+
 ## `forget_sequence` 代表什麼
 
 `forget_sequence` 裡面放的是資料集的 class label id，不是圖片 index。
