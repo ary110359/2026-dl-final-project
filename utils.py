@@ -46,8 +46,6 @@ def get_device(args=None):
         gpu = int(getattr(args, "gpu", 0)) if args is not None else 0
         torch.cuda.set_device(gpu)
         return torch.device(f"cuda:{gpu}")
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return torch.device("mps")
     return torch.device("cpu")
 
 
