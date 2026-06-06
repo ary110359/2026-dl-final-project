@@ -14,7 +14,7 @@
 | 參數分區 | 參數只有「被 mask 選中」與「沒被 mask 選中」兩種狀態。 | 每輪將參數切成 `new`、`conflict`、`old`、`other` 四種區域。 |
 | Conflict 區域力道 | 沒有針對連續遺忘重複命中的頻率衰減。 | 衝突區域（Conflict Region）使用 `alpha_conflict ** hit_count`，例如 `0.5^n`，降低共用特徵被反覆推擠的傷害。 |
 | Optimizer 控制方式 | 原版 SalUn 主要使用 gradient mask 與參數 restore 邏輯。 | 使用更新後修正（post-update correction）：先讓 optimizer 正常更新，再依照區域策略重寫每個參數的實際更新幅度。 |
-| 執行環境 | 原始碼中多處假設 CUDA。 | 改成集中選擇 CUDA、Apple MPS 或 CPU，方便在 MBP 或無 CUDA 環境測試。 |
+| 執行環境 | 原始碼中多處假設 CUDA。 | 保留 CUDA 優先的執行方式；若沒有 CUDA 則退回 CPU。 |
 | 套件與本機檔案 | 原版 requirements。 | 補上 `pyarrow==12.0.1` 以相容目前 `datasets` 版本，並忽略 `.python`、`.venv`、`data`、`checkpoints` 等本機檔案。 |
 
 ## 程式碼改動地圖
@@ -60,7 +60,7 @@ rg "PROJECT MOD"
     - `--alpha_conflict`
 
 - `utils.py`、`main_train.py`、`main_random.py`、`trainer/train.py`、`trainer/val.py`、`evaluation/SVC_MIA.py`、多個 `unlearn/*`
-  - 將原本偏 CUDA-only 的 tensor movement 改成可依照實際環境選擇 CUDA、Apple MPS 或 CPU。
+  - 將原本偏 CUDA-only 的 tensor movement 改成 CUDA/CPU 相容；正式實驗建議在有 CUDA 的環境執行。
 
 ## 演算法流程
 
@@ -186,7 +186,7 @@ PY
 查看目前會使用哪個運算裝置：
 
 ```bash
-.venv/bin/python -c 'import torch, types, utils; args=types.SimpleNamespace(gpu=0); device=utils.get_device(args); print("selected", device); print("cuda", torch.cuda.is_available()); print("mps", torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else None)'
+.venv/bin/python -c 'import torch, types, utils; args=types.SimpleNamespace(gpu=0); device=utils.get_device(args); print("selected", device); print("cuda", torch.cuda.is_available())'
 ```
 
 ## 測試指令
@@ -212,11 +212,14 @@ Checkpoint forward smoke test：
   --num_classes 100 \
   --arch resnet18 \
   --unlearn RL \
-  --resume checkpoints/resnet18_cifar100/0model_SA_best.pth.tar \
+  --model_path checkpoints/resnet18_cifar100/0model_SA_best.pth.tar \
+  --save_dir runs/sequential_rl_cifar100 \
   --forget_sequence 0,1,2,3,4 \
   --mask_ratio 0.01 \
   --alpha_conflict 0.5
 ```
+
+注意：`--model_path` 才是原始模型權重路徑。`--save_dir` 是 unlearning checkpoint 和評估結果的輸出資料夾。`--resume` 是 boolean flag，只能單獨使用，代表要從 `--save_dir` 裡已經存下來的 unlearning checkpoint 繼續跑，後面不能接權重路徑。
 
 ## 原版 SalUn 指令
 

@@ -7,6 +7,34 @@ import utils
 
 from .impl import iterative_unlearn
 
+
+def _replace_targets_with_random_labels(dataset, num_classes):
+    """Replace dataset targets with random labels while preserving target storage."""
+    if hasattr(dataset, "targets"):
+        targets = dataset.targets
+        random_targets = np.random.randint(0, num_classes, size=len(targets))
+        if isinstance(targets, np.ndarray):
+            dataset.targets = random_targets.astype(targets.dtype, copy=False)
+        else:
+            dataset.targets = random_targets.tolist()
+        return
+
+    if hasattr(dataset, "labels"):
+        labels = dataset.labels
+        random_labels = np.random.randint(0, num_classes, size=len(labels))
+        if isinstance(labels, np.ndarray):
+            dataset.labels = random_labels.astype(labels.dtype, copy=False)
+        else:
+            dataset.labels = random_labels.tolist()
+        return
+
+    if hasattr(dataset, "dataset"):
+        _replace_targets_with_random_labels(dataset.dataset, num_classes)
+        return
+
+    raise AttributeError("Dataset does not expose targets or labels for random-label RL.")
+
+
 @torch.no_grad()
 def post_update_correction(model, theta_before, regions, alpha):
     """
@@ -89,10 +117,7 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None, region
             }
     
     if args.dataset == "cifar100" or args.dataset == "TinyImagenet":
-        try:
-            forget_dataset.targets = np.random.randint(0, args.num_classes, forget_dataset.targets.shape)
-        except:
-            forget_dataset.dataset.targets = np.random.randint(0, args.num_classes, len(forget_dataset.dataset.targets))
+        _replace_targets_with_random_labels(forget_dataset, args.num_classes)
     
         retain_dataset = retain_loader.dataset
         train_dataset = torch.utils.data.ConcatDataset([forget_dataset,retain_dataset])
