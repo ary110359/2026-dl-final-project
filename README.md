@@ -239,3 +239,14 @@ python generate_mask.py --save_dir ${saliency_map_path} --model_path ${origin_mo
 ```bash
 python main_random.py --unlearn RL --unlearn_epochs ${epochs_for_unlearning} --unlearn_lr ${learning_rate_for_unlearning} --num_indexes_to_replace ${forgetting_data_amount} --model_path ${origin_model_path} --save_dir ${save_dir} --mask_path ${saliency_map_path}
 ```
+
+## 更新紀錄 (Update Log)
+
+本次針對專案的測試指標進行了新增與修正：
+
+- **`utils.py`**
+  - 新增 `get_per_class_accuracy` 函式。
+- **`utils_mask.py`**
+  - 新增 `calculate_mask_saturation` 函式。
+- **`main_forget.py`**
+  - [PROJECT MOD] 更新第 4 步：優化 hit-count 記憶機制，並新增本輪評估邏輯。
