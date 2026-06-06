@@ -426,3 +426,32 @@ def get_poisoned_loader(poison_loader, unpoison_loader, test_loader, poison_func
     )
 
     return poisoned_loader, unpoison_loader, poisoned_full_loader, poisoned_test_loader
+
+def get_per_class_accuracy(model, test_loader, num_classes, device):
+    """計算並回傳每個類別各自的 Accuracy 字典 (0~9)"""
+    model.eval()
+    correct_per_class = {i: 0 for i in range(num_classes)}
+    total_per_class = {i: 0 for i in range(num_classes)}
+    
+    import torch
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images, targets = images.to(device), targets.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+            
+            for i in range(len(targets)):
+                label = targets[i].item()
+                pred = predicted[i].item()
+                if label == pred:
+                    correct_per_class[label] += 1
+                total_per_class[label] += 1
+                
+    acc_per_class = {}
+    for i in range(num_classes):
+        if total_per_class[i] > 0:
+            acc_per_class[i] = 100.0 * correct_per_class[i] / total_per_class[i]
+        else:
+            acc_per_class[i] = 0.0
+            
+    return acc_per_class

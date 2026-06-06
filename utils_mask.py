@@ -79,3 +79,16 @@ def partition_regions(current_mask, historical_mask):
             'hit_count': updated_count,
         }
     return regions
+
+def calculate_mask_saturation(historical_mask):
+    """計算 Mask Saturation Ratio (被選中過的參數佔全體參數的比例)"""
+    if not historical_mask:
+        return 0.0
+    
+    total_params = 0
+    hit_params = 0
+    for k, v in historical_mask.items():
+        total_params += v.numel()
+        hit_params += (v > 0).sum().item()
+        
+    return hit_params / total_params if total_params > 0 else 0.0

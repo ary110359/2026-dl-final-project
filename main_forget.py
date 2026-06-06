@@ -18,6 +18,8 @@ from trainer import validate
 # 產生新的 saliency mask、和歷史 hit count 比對，並把分區更新規則傳給 RL。
 from utils_mask import update_historical_mask, partition_regions
 from generate_mask import generate_mask_for_class
+from utils import get_per_class_accuracy
+from utils_mask import calculate_mask_saturation
 
 def main():
     args = arg_parser.parse_args()
@@ -183,36 +185,45 @@ def main():
         
         # =========================================================================
         # [PROJECT MOD] 第 4 步：更新 hit-count 記憶，並評估本輪結果。
-        #
-        # 功能與目的：
-        # 當前類別遺忘完成後，將本輪 mask 加進歷史記憶，讓後續輪次知道
-        # 哪些參數已經被反覆動過。
         # =========================================================================
         forgotten_classes.append(current_class)
         historical_mask = update_historical_mask(historical_mask, current_mask)
         
-        print(f"📊 正在評估第 {round_idx+1} 輪 (遺忘類別 {current_class}) 的表現...")
+        print(f"\n📊 正在評估第 {round_idx+1} 輪 (已遺忘類別: {forgotten_classes}) 的表現...")
         evaluation_result = {}
-        accuracy = {}
         
-        # 跑驗證集算出各個 Accuracy
-        for name, loader in unlearn_data_loaders.items():
-            utils.dataset_convert_to_test(loader.dataset, args)
-            val_acc = validate(loader, model, criterion, args)
-            accuracy[name] = val_acc
-            print(f"   => {name} acc: {val_acc}")
+        # 2. 跑一次 Test Loader，拿到 0~9 所有的準確率成績單
+        utils.dataset_convert_to_test(test_loader.dataset, args)
+        per_class_acc = get_per_class_accuracy(model, test_loader, args.num_classes, device)
         
-        evaluation_result["accuracy"] = accuracy
+        # 3. 計算自訂四大核心指標
+        current_forget_acc = per_class_acc[current_class]
         
-        # (選擇性) 跑 MIA 防禦評估 (這裡直接保留作者原版的 code)
+        retain_classes = [c for c in range(args.num_classes) if c not in forgotten_classes]
+        retain_acc = sum([per_class_acc[c] for c in retain_classes]) / len(retain_classes) if retain_classes else 0.0
+        
+        rebound_score, max_rebound = 0.0, 0.0
+        old_forgotten = forgotten_classes[:-1]
+        if len(old_forgotten) > 0:
+            old_accs = [per_class_acc[c] for c in old_forgotten]
+            rebound_score = sum(old_accs) / len(old_accs)
+            max_rebound = max(old_accs)
+            
+        mask_saturation = calculate_mask_saturation(historical_mask)
+
+        # ---------------------------------------------------------
+        # 4. 執行 SVC_MIA 攻擊測試 (原作者邏輯)
+        # ---------------------------------------------------------
         test_len = len(test_loader.dataset)
-        shadow_train = torch.utils.data.Subset(retain_dataset, list(range(test_len)))
+        # 避免 retain_dataset 數量比 test_len 少而報錯
+        shadow_train_size = min(test_len, len(retain_dataset)) 
+        shadow_train = torch.utils.data.Subset(retain_dataset, list(range(shadow_train_size)))
         shadow_train_loader = torch.utils.data.DataLoader(shadow_train, batch_size=args.batch_size, shuffle=False)
 
-        utils.dataset_convert_to_test(test_loader, args)
-        utils.dataset_convert_to_test(forget_loader, args)
+        utils.dataset_convert_to_test(test_loader.dataset, args)
+        utils.dataset_convert_to_test(forget_loader.dataset, args)
 
-        evaluation_result["SVC_MIA_forget_efficacy"] = evaluation.SVC_MIA(
+        mia_result = evaluation.SVC_MIA(
             shadow_train=shadow_train_loader,
             shadow_test=test_loader,
             target_train=None,
@@ -220,10 +231,35 @@ def main():
             model=model,
         )
         
+        # 抓取 confidence 和 prob 的攻擊準確率
+        mia_conf = mia_result.get('confidence', 0.0) * 100
+        mia_prob = mia_result.get('prob', 0.0) * 100
+
+        # ---------------------------------------------------------
+        # 5. 印出漂漂亮亮的報告 (包含 MIA)
+        # ---------------------------------------------------------
+        print(f"    [Retain Accuracy]:         {retain_acc:.2f}% ")
+        print(f"    [Current Forget Accuracy]: {current_forget_acc:.2f}% ")
+        if len(old_forgotten) > 0:
+            print(f"    [Rebound Score]:           {rebound_score:.2f}% (Max: {max_rebound:.2f}%)")
+        print(f"    [Mask Saturation Ratio]:   {mask_saturation*100:.2f}%")
+        print(f"     [MIA Attack (Confidence)]:  {mia_conf:.2f}% ")
+        print(f"     [MIA Attack (Prob)]:        {mia_prob:.2f}% ")
+
+        # 6. 存入 evaluation_result
+        evaluation_result["SVC_MIA_forget_efficacy"] = mia_result
+        evaluation_result["custom_metrics"] = {
+            "retain_acc": retain_acc,
+            "current_forget_acc": current_forget_acc,
+            "rebound_score": rebound_score,
+            "max_rebound": max_rebound,
+            "mask_saturation": mask_saturation
+        }
+        
         # 每一輪結束時存檔，避免中斷
         # 你們可以修改 args.save_dir，讓它存成 "checkpoint_round_1.pth" 這種格式
         unlearn.save_unlearn_checkpoint(model, evaluation_result, args)
-        print(f"✅ 第 {round_idx+1} 輪結束！")
+        print(f" 第 {round_idx+1} 輪結束")
 
 
 if __name__ == "__main__":
