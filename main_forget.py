@@ -1,4 +1,5 @@
 import copy
+import csv
 import os
 from collections import OrderedDict
 
@@ -20,6 +21,46 @@ from utils_mask import update_historical_mask, partition_regions
 from generate_mask import generate_mask_for_class
 from utils import get_per_class_accuracy
 from utils_mask import calculate_mask_saturation
+
+
+def append_round_metrics_csv(
+    csv_path,
+    round_idx,
+    current_class,
+    forgotten_classes,
+    per_class_acc,
+    custom_metrics,
+    mia_result,
+):
+    """[PROJECT MOD] 每一輪遺忘後追加一列評估資料，供畫圖程式讀取。"""
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+
+    row = {
+        "step": round_idx + 1,
+        "current_class": current_class,
+        "forgotten_classes": "|".join(str(c) for c in forgotten_classes),
+        "retain_acc": custom_metrics["retain_acc"],
+        "current_forget_acc": custom_metrics["current_forget_acc"],
+        "rebound_score": custom_metrics["rebound_score"],
+        "max_rebound": custom_metrics["max_rebound"],
+        "mask_saturation": custom_metrics["mask_saturation"],
+        "mia_correctness": mia_result.get("correctness", 0.0) * 100,
+        "mia_confidence": mia_result.get("confidence", 0.0) * 100,
+        "mia_entropy": mia_result.get("entropy", 0.0) * 100,
+        "mia_m_entropy": mia_result.get("m_entropy", 0.0) * 100,
+        "mia_prob": mia_result.get("prob", 0.0) * 100,
+    }
+    for class_id in sorted(per_class_acc):
+        row[f"class_{class_id}_accuracy"] = per_class_acc[class_id]
+
+    mode = "w" if round_idx == 0 else "a"
+    write_header = mode == "w" or not os.path.exists(csv_path)
+    with open(csv_path, mode, newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
 
 def main():
     args = arg_parser.parse_args()
@@ -247,14 +288,28 @@ def main():
         print(f"     [MIA Attack (Prob)]:        {mia_prob:.2f}% ")
 
         # 6. 存入 evaluation_result
-        evaluation_result["SVC_MIA_forget_efficacy"] = mia_result
-        evaluation_result["custom_metrics"] = {
+        custom_metrics = {
             "retain_acc": retain_acc,
             "current_forget_acc": current_forget_acc,
             "rebound_score": rebound_score,
             "max_rebound": max_rebound,
             "mask_saturation": mask_saturation
         }
+        evaluation_result["SVC_MIA_forget_efficacy"] = mia_result
+        evaluation_result["custom_metrics"] = custom_metrics
+        evaluation_result["per_class_accuracy"] = per_class_acc
+
+        metrics_csv = os.path.join(args.save_dir, "sequential_metrics.csv")
+        append_round_metrics_csv(
+            metrics_csv,
+            round_idx,
+            current_class,
+            forgotten_classes,
+            per_class_acc,
+            custom_metrics,
+            mia_result,
+        )
+        print(f"     [CSV Metrics]:             {metrics_csv}")
         
         # 每一輪結束時存檔，避免中斷
         # 你們可以修改 args.save_dir，讓它存成 "checkpoint_round_1.pth" 這種格式
