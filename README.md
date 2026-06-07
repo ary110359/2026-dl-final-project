@@ -221,6 +221,40 @@ Checkpoint forward smoke test：
 
 注意：`--model_path` 才是原始模型權重路徑。`--save_dir` 是 unlearning checkpoint 和評估結果的輸出資料夾。`--resume` 是 boolean flag，只能單獨使用，代表要從 `--save_dir` 裡已經存下來的 unlearning checkpoint 繼續跑，後面不能接權重路徑。
 
+每一輪評估後，程式會把畫圖需要的資料 append 到：
+
+```text
+${save_dir}/sequential_metrics.csv
+```
+
+CSV 內包含：
+
+```text
+step, current_class, forgotten_classes,
+retain_acc, current_forget_acc, rebound_score, max_rebound,
+mask_saturation,
+mia_correctness, mia_confidence, mia_entropy, mia_m_entropy, mia_prob,
+class_0_accuracy, class_1_accuracy, ...
+```
+
+畫出每個遺忘類別的 accuracy trajectory：
+
+```bash
+.venv/bin/python plot_unlearning_metrics.py \
+  --csv runs/sequential_rl_cifar100/sequential_metrics.csv \
+  --output runs/sequential_rl_cifar100/class_trajectories.png \
+  --data ./data
+```
+
+只畫指定類別：
+
+```bash
+.venv/bin/python plot_unlearning_metrics.py \
+  --csv runs/sequential_rl_cifar100/sequential_metrics.csv \
+  --classes 0,1,2,3,4 \
+  --output runs/sequential_rl_cifar100/forgotten_classes.png
+```
+
 ## 原版 SalUn 指令
 
 以下原版 one-shot 指令仍可作為 baseline 使用。
