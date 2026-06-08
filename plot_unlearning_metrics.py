@@ -42,7 +42,26 @@ def _load_cifar100_names(data_root):
     return {idx: name for idx, name in enumerate(meta.get("fine_label_names", []))}
 
 
-def plot_class_trajectories(
+def _class_accuracy_key(class_id):
+    return f"class_{class_id}_accuracy"
+
+
+def _class_values(rows, class_id, csv_path):
+    key = _class_accuracy_key(class_id)
+    if key not in rows[0]:
+        raise KeyError(f"{key} is not present in {csv_path}")
+    return [float(row[key]) for row in rows]
+
+
+def _save_figure(output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot to {output_path}")
+
+
+def plot_overlay_trajectories(
     csv_path,
     output_path,
     classes=None,
@@ -58,14 +77,19 @@ def plot_class_trajectories(
     class_ids = classes if classes else _infer_forget_sequence(rows)
     class_names = _load_cifar100_names(data_root)
 
-    plt.figure(figsize=(8.5, 5.4))
-    for class_id in class_ids:
-        key = f"class_{class_id}_accuracy"
-        if key not in rows[0]:
-            raise KeyError(f"{key} is not present in {csv_path}")
-        values = [float(row[key]) for row in rows]
+    plt.figure(figsize=(14, 7.6))
+    colors = plt.get_cmap("tab20").colors
+    for idx, class_id in enumerate(class_ids):
+        values = _class_values(rows, class_id, csv_path)
         label = class_names.get(class_id, f"class {class_id}")
-        plt.plot(steps, values, marker="o", linewidth=2.5, label=f"{class_id}: {label}")
+        plt.plot(
+            steps,
+            values,
+            color=colors[idx % len(colors)],
+            linewidth=1.9,
+            alpha=0.88,
+            label=f"{label} ({class_id})",
+        )
 
     plt.axhline(
         threshold,
@@ -80,14 +104,35 @@ def plot_class_trajectories(
     plt.xticks(steps)
     plt.ylim(-5, 105)
     plt.grid(alpha=0.28)
-    plt.legend(loc="best", fontsize=9)
-    plt.tight_layout()
+    plt.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.13),
+        ncol=5,
+        fontsize=8.5,
+        frameon=False,
+        handlelength=2.8,
+        columnspacing=1.8,
+    )
+    plt.tight_layout(rect=[0, 0.12, 1, 1])
+    _save_figure(output_path)
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=180)
-    plt.close()
-    print(f"Saved plot to {output_path}")
+
+def plot_class_trajectories(
+    csv_path,
+    output_path,
+    classes=None,
+    data_root="./data",
+    threshold=10.0,
+    title=None,
+):
+    plot_overlay_trajectories(
+        csv_path=csv_path,
+        output_path=output_path,
+        classes=classes,
+        data_root=data_root,
+        threshold=threshold,
+        title=title,
+    )
 
 
 def main():

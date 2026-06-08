@@ -2,6 +2,7 @@ import copy
 import csv
 import os
 from collections import OrderedDict
+from datetime import datetime
 
 import arg_parser
 import evaluation
@@ -52,6 +53,12 @@ def append_round_metrics_csv(
     }
     for class_id in sorted(per_class_acc):
         row[f"class_{class_id}_accuracy"] = per_class_acc[class_id]
+
+    if round_idx == 0 and os.path.exists(csv_path):
+        root, ext = os.path.splitext(csv_path)
+        backup_path = f"{root}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+        os.replace(csv_path, backup_path)
+        print(f"     [CSV Backup]:              {backup_path}")
 
     mode = "w" if round_idx == 0 else "a"
     write_header = mode == "w" or not os.path.exists(csv_path)
